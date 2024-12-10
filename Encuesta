@@ -1,0 +1,154 @@
+# Importaciones
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
+from wordcloud import WordCloud
+from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import GaussianNB
+from sklearn.metrics import classification_report, confusion_matrix
+
+# Definir función para limpiar valores numéricos
+def clean_numeric_value(value):
+    try:
+        # Extrae solo los números del string
+        if isinstance(value, str):
+            return float(''.join(filter(str.isdigit, value)))
+        return float(value)
+    except:
+        return None
+
+# Cargar datos
+file_path = "C:/Users/Jose Martinez/OneDrive/Desktop/Cuestionario sobre la salud mental en estudiantes universitarios (Respuestas).xlsx"
+dataset = pd.read_excel(file_path)
+
+# Limpiar nombres de las columnas (eliminar espacios adicionales)
+dataset.columns = dataset.columns.str.strip()
+
+# Nombres de columnas corregidos
+numeric_columns = [
+    '¿Cuántas horas duermes en promedio cada noche?  (Opciones 1 hr o 5 hrs)',
+    '¿Cuántas horas dedicas semanalmente a actividades recreativas?   (Opciones 1 hr o 5 hrs)'
+]
+
+categorical_columns = [
+    '¿Con qué frecuencia sientes estrés debido a la carga académica?',
+    '¿Qué nivel de satisfacción tienes con tu vida académica actualmente? (Escala de 1 a 10)',
+]
+
+text_columns = [
+    '¿Cómo describirías el impacto del estrés académico en tu vida cotidiana?',
+    '¿Qué estrategias utilizas para gestionar el estrés?',
+    '¿Qué cambios o recursos en la universidad crees que ayudarían a mejorar la salud mental de los estudiantes?',
+    '¿Cómo te sientes con respecto a tu carga académica y su impacto en tu salud mental?'
+]
+
+# Limpiar datos numéricos
+for column in numeric_columns:
+    if column in dataset.columns:
+        dataset[column] = dataset[column].apply(clean_numeric_value)
+    else:
+        print(f"Columna {column} no encontrada.")
+
+# Separar datos por tipo
+data_numeric = dataset[numeric_columns].dropna()
+data_categorical = dataset[categorical_columns]
+data_text = dataset[text_columns]
+
+# Mostrar estadísticas descriptivas
+print("\nEstadísticas descriptivas después de limpieza:")
+print(data_numeric.describe())
+
+# Visualizaciones
+for column in numeric_columns:
+    plt.figure(figsize=(10, 6))
+    sns.histplot(data=data_numeric[column].dropna(), kde=True)
+    plt.title(f"Distribución de {column}")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+# Nube de palabras
+for column in text_columns:
+    text_data = " ".join(dataset[column].astype(str))
+    wordcloud = WordCloud(width=800, height=400, background_color="white").generate(text_data)
+    plt.figure(figsize=(10, 6))
+    plt.imshow(wordcloud)
+    plt.title(f"Nube de palabras: {column}")
+    plt.axis("off")
+    plt.show()
+
+# Clustering
+scaler = StandardScaler()
+data_scaled = scaler.fit_transform(data_numeric)
+
+# Método del codo
+wcss = []
+K = range(2, 8)
+for k in K:
+    kmeans = KMeans(n_clusters=k, random_state=42)
+    kmeans.fit(data_scaled)
+    wcss.append(kmeans.inertia_)
+
+plt.figure(figsize=(10, 6))
+plt.plot(K, wcss, 'bo-')
+plt.title("Método del Codo")
+plt.xlabel("Número de Clústeres")
+plt.ylabel("WCSS")
+plt.show()
+
+# Aplicar K-means
+kmeans = KMeans(n_clusters=3, random_state=42)
+data_numeric['Cluster'] = kmeans.fit_predict(data_scaled)
+
+# Visualizar clusters
+plt.figure(figsize=(10, 6))
+plt.scatter(data_scaled[:, 0], data_scaled[:, 1], c=data_numeric['Cluster'])
+plt.title("Clusters")
+plt.xlabel(numeric_columns[0])
+plt.ylabel(numeric_columns[1])
+plt.show()
+
+# Clasificación
+satisfaction_mapping = {
+    "Muy insatisfecho/a": 0,
+    "Insatisfecho/a": 0,
+    "Neutro": 1,
+    "Satisfecho/a": 2,
+    "Muy satisfecho/a": 2
+}
+
+# Crear una nueva columna 'Etiqueta' para clasificación
+dataset['Etiqueta'] = dataset['¿Qué nivel de satisfacción tienes con tu vida académica actualmente? (Escala de 1 a 10)'].map(satisfaction_mapping)
+
+# Usar solo filas que tienen datos numéricos completos
+valid_indices = data_numeric.index
+X = data_numeric.loc[valid_indices].drop(columns=['Cluster'])
+y = dataset.loc[valid_indices, 'Etiqueta']
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+model = GaussianNB()
+model.fit(X_train, y_train)
+y_pred = model.predict(X_test)
+
+print("\nReporte de Clasificación:")
+print(classification_report(y_test, y_pred))
+
+# Matriz de confusión con estilo mejorado
+conf_matrix = confusion_matrix(y_test, y_pred)
+plt.figure(figsize=(8, 6))
+sns.heatmap(
+    conf_matrix, 
+    annot=True, 
+    fmt='d', 
+    cmap='rocket',  # Colormap mejorado
+    xticklabels=["Insatisfecho", "Neutro", "Satisfecho"],
+    yticklabels=["Insatisfecho", "Neutro", "Satisfecho"]
+)
+plt.title("Matriz de Confusión")
+plt.xlabel("Predicción")
+plt.ylabel("Real")
+plt.show()
